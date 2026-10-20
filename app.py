@@ -62,8 +62,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Database Setup
-conn = sqlite3.connect("bets_tracker_inr.db", check_same_thread=False)
+# Database Setup with persistent local file handling
+db_file = "bets_tracker_inr.db"
+conn = sqlite3.connect(db_file, check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS bets (
     id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, bet_type TEXT,
