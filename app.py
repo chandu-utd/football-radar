@@ -62,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Database Setup with persistent local file handling
+# Database Setup
 db_file = "bets_tracker_inr.db"
 conn = sqlite3.connect(db_file, check_same_thread=False)
 c = conn.cursor()
@@ -72,15 +72,25 @@ c.execute('''CREATE TABLE IF NOT EXISTS bets (
 )''')
 conn.commit()
 
-# Top Header & Bankroll Controls (Defaulted to ₹500 Bankroll & ₹20 Base Unit)
+# Initialize Session State for Bankroll & Logged tracking so they stay saved
+if "starting_bankroll" not in st.session_state:
+    st.session_state.starting_bankroll = 500
+if "unit_inr" not in st.session_state:
+    st.session_state.unit_inr = 20
+if "logged_bets" not in st.session_state:
+    st.session_state.logged_bets = set()
+
+# Top Header & Bankroll Controls (Saved in Session State)
 head_left, head_mid1, head_mid2, head_right = st.columns([2, 1, 1, 1])
 with head_left:
     st.markdown("<h1 style='font-size: 32px; font-weight: 700; margin-bottom: 2px;'>Radar</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #86868b; margin-bottom: 14px;'>AI Football Terminal & ₹ Bankroll Manager</p>", unsafe_allow_html=True)
 with head_mid1:
-    starting_bankroll = st.number_input("₹ Starting Bankroll", min_value=100, value=500, step=50)
+    starting_bankroll = st.number_input("₹ Starting Bankroll", min_value=100, value=st.session_state.starting_bankroll, step=50)
+    st.session_state.starting_bankroll = starting_bankroll
 with head_mid2:
-    unit_inr = st.number_input("₹ Base Stake (1 Unit)", min_value=10, max_value=1000, value=20, step=10)
+    unit_inr = st.number_input("₹ Base Stake (1 Unit)", min_value=10, max_value=1000, value=st.session_state.unit_inr, step=10)
+    st.session_state.unit_inr = unit_inr
 with head_right:
     st.write("")
     if st.button("🔄 Refresh Picks"):
@@ -137,6 +147,8 @@ with tab1:
             stake_units = round(max(0.5, min(2.0, (comb_ev / 12.0))), 1)
             stake_inr = int(stake_units * unit_inr)
             potential_win_inr = int(stake_inr * comb_odds)
+            parlay_key = f"Parlay #{idx+1}: {combo[0]['fixture']} + {combo[1]['fixture']}"
+            is_logged = parlay_key in st.session_state.logged_bets
 
             with st.container(border=True):
                 col_left, col_right = st.columns([4, 1])
@@ -154,12 +166,16 @@ with tab1:
 
                 st.markdown(f"**Suggested Bet:** `₹{stake_inr:,}` ({stake_units}u) $\\rightarrow$ **Potential Return:** `₹{potential_win_inr:,}`")
 
-                if st.button(f"➕ Log Parlay #{idx+1} (₹{stake_inr:,})", key=f"btn_parlay_{idx}"):
-                    summary = f"{combo[0]['fixture']} ({combo[0]['market']}) + {combo[1]['fixture']} ({combo[1]['market']})"
-                    c.execute("INSERT INTO bets (date, bet_type, details, odds, stake, status, profit_loss) VALUES (?,?,?,?,?,?,?)",
-                              (datetime.now().strftime("%d %b %Y"), "2-Leg Parlay", summary, comb_odds, stake_inr, "Pending", 0.0))
-                    conn.commit()
-                    st.rerun()
+                if is_logged:
+                    st.success("✅ Logged to Tracker (Locked)")
+                else:
+                    if st.button(f"➕ Log Parlay #{idx+1} (₹{stake_inr:,})", key=f"btn_parlay_{idx}"):
+                        summary = f"{combo[0]['fixture']} ({combo[0]['market']}) + {combo[1]['fixture']} ({combo[1]['market']})"
+                        c.execute("INSERT INTO bets (date, bet_type, details, odds, stake, status, profit_loss) VALUES (?,?,?,?,?,?,?)",
+                                  (datetime.now().strftime("%d %b %Y"), "2-Leg Parlay", summary, comb_odds, stake_inr, "Pending", 0.0))
+                        conn.commit()
+                        st.session_state.logged_bets.add(parlay_key)
+                        st.rerun()
     else:
         st.info("No matches found for this filter right now.")
 
@@ -170,6 +186,8 @@ with tab2:
             stake_inr = int(p["stake"] * unit_inr)
             potential_win_inr = int(stake_inr * p["odds"])
             risk_tag = "🟢 Low Risk (Bank Builder)" if p["odds"] < 1.70 else ("🟡 Medium Risk (Smart Value)" if p["odds"] < 2.40 else "🔴 High Risk (Punt)")
+            single_key = f"Single: {p['fixture']} ({p['market']})"
+            is_logged = single_key in st.session_state.logged_bets
             
             with st.container(border=True):
                 col_info, col_num = st.columns([4, 1])
@@ -183,11 +201,15 @@ with tab2:
                 st.markdown(f"<div class='reason-box'>⚽ <b>Gemini Tactical Insight:</b> {p['rationale']}</div>", unsafe_allow_html=True)
                 st.caption(f"Suggested Stake: **₹{stake_inr:,}** ({p['stake']}u) • Potential Return: **₹{potential_win_inr:,}**")
 
-                if st.button(f"➕ Log Single: {p['fixture']} (₹{stake_inr:,})", key=f"btn_single_{idx}"):
-                    c.execute("INSERT INTO bets (date, bet_type, details, odds, stake, status, profit_loss) VALUES (?,?,?,?,?,?,?)",
-                              (datetime.now().strftime("%d %b %Y"), "Single", f"{p['fixture']} ({p['market']})", p['odds'], stake_inr, "Pending", 0.0))
-                    conn.commit()
-                    st.rerun()
+                if is_logged:
+                    st.success("✅ Logged to Tracker (Locked)")
+                else:
+                    if st.button(f"➕ Log Single: {p['fixture']} (₹{stake_inr:,})", key=f"btn_single_{idx}"):
+                        c.execute("INSERT INTO bets (date, bet_type, details, odds, stake, status, profit_loss) VALUES (?,?,?,?,?,?,?)",
+                                  (datetime.now().strftime("%d %b %Y"), "Single", f"{p['fixture']} ({p['market']})", p['odds'], stake_inr, "Pending", 0.0))
+                        conn.commit()
+                        st.session_state.logged_bets.add(single_key)
+                        st.rerun()
     else:
         st.info("No single picks currently active for this competition.")
 
