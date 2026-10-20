@@ -1,140 +1,208 @@
 import os
-import requests
+import streamlit as st
 import pandas as pd
+import sqlite3
+from datetime import datetime
+from itertools import combinations
 
-SPORT_KEYS = {
-    "Champions League": "soccer_uefa_champs_league",
-    "Premier League": "soccer_epl",
-    "La Liga": "soccer_spain_la_liga"
-}
+st.set_page_config(page_title="Radar • Matchday Terminal", page_icon="⚽", layout="wide")
 
-def fetch_odds(sport_key):
-    api_key = os.getenv("ODDS_API_KEY")
-    if not api_key:
-        return []
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
-    params = {
-        "apiKey": api_key,
-        "regions": "uk,eu",
-        "markets": "h2h,totals,spreads",
-        "oddsFormat": "decimal"
+# Load secrets BEFORE running engine functions so Gemini AI works!
+if "ODDS_API_KEY" in st.secrets:
+    os.environ["ODDS_API_KEY"] = st.secrets["ODDS_API_KEY"]
+if "GEMINI_API_KEY" in st.secrets:
+    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
+from engine import get_value_picks
+
+# Apple Bento Dark Styling
+st.markdown("""
+<style>
+    html, body, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif !important;
+        background-color: #0b0c10 !important;
+        color: #f5f5f7 !important;
     }
-    try:
-        r = requests.get(url, params=params, timeout=12)
-        return r.json() if r.status_code == 200 else []
-    except Exception:
-        return []
+    .metric-pill {
+        background: rgba(26, 27, 34, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 16px 20px;
+        text-align: center;
+    }
+    .metric-title { font-size: 12px; color: #86868b; text-transform: uppercase; letter-spacing: 0.05em; }
+    .metric-value { font-size: 26px; font-weight: 700; color: #ffffff; margin-top: 4px; }
+    .league-badge {
+        display: inline-block; padding: 4px 12px; border-radius: 100px;
+        font-size: 11px; font-weight: 600; text-transform: uppercase;
+        background: rgba(0, 113, 227, 0.15); color: #2997ff;
+        border: 1px solid rgba(41, 151, 255, 0.3); margin-bottom: 8px;
+    }
+    .edge-badge {
+        background: rgba(48, 209, 88, 0.15); color: #30d158;
+        border: 1px solid rgba(48, 209, 88, 0.3); padding: 4px 10px;
+        border-radius: 100px; font-size: 12px; font-weight: 600;
+    }
+    .reason-box {
+        background: rgba(0, 0, 0, 0.35);
+        border-left: 3px solid #2997ff;
+        border-radius: 8px;
+        padding: 12px 14px;
+        color: #e5e5ea;
+        font-size: 14.5px;
+        line-height: 1.5;
+        margin-top: 8px;
+        margin-bottom: 12px;
+    }
+    div.stButton > button {
+        background-color: #0071e3 !important; color: #ffffff !important;
+        border: none !important; border-radius: 100px !important;
+        padding: 8px 24px !important; font-weight: 600 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-def generate_ai_tactical_rationale(fixture, league, market, odds, avg_price):
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    fallback = (
-        f"Solid value here — most bookies have '{market}' priced much lower around {avg_price:.2f}, "
-        f"so getting {odds} gives you a great payout boost for a very realistic result."
-    )
-    if not gemini_key:
-        return fallback
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-    prompt = (
-        f"You are a knowledgeable football mate talking to a fellow football fan. "
-        f"Explain in 1 or 2 simple, punchy sentences why betting on '{market}' at {odds} odds "
-        f"in {fixture} ({league}) makes total sense on the pitch. "
-        f"Talk about how the teams actually play (attacking pace, leaky defence, home crowd, or goal-scoring form). "
-        f"NEVER use nerdy math jargon like 'EV', 'consensus benchmark', 'price discrepancy', or 'xG'. Keep it under 32 words."
-    )
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code == 200:
-            return res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception:
-        pass
-    return fallback
+# Database Setup (Now stores INR stakes & profits)
+conn = sqlite3.connect("bets_tracker_inr.db", check_same_thread=False)
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS bets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, bet_type TEXT,
+    details TEXT, odds REAL, stake REAL, status TEXT, profit_loss REAL
+)''')
+conn.commit()
 
-def get_value_picks():
-    all_records = []
-    for league, key in SPORT_KEYS.items():
-        matches = fetch_odds(key)
-        league_records = []
-        for m in matches:
-            home, away = m.get("home_team"), m.get("away_team")
-            bms = m.get("bookmakers", [])
-            if not bms:
-                continue
+# Top Header & Controls Row
+head_left, head_mid, head_right = st.columns([3, 2, 1])
+with head_left:
+    st.markdown("<h1 style='font-size: 34px; font-weight: 700; margin-bottom: 2px;'>Radar</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #86868b; margin-bottom: 14px;'>Smart Football Picks & ₹ INR Bankroll Tracker • UCL, PL & La Liga</p>", unsafe_allow_html=True)
+with head_mid:
+    unit_inr = st.number_input("₹ Base Stake (1 Unit = ₹)", min_value=100, max_value=50000, value=500, step=100)
+with head_right:
+    st.write("")
+    if st.button("🔄 Refresh Picks"):
+        if os.path.exists("latest_picks.csv"):
+            os.remove("latest_picks.csv")
+        st.cache_data.clear()
+        st.rerun()
 
-            outcomes_map = {}
-            for bm in bms:
-                for mkt in bm.get("markets", []):
-                    m_key = mkt.get("key")
-                    for out in mkt.get("outcomes", []):
-                        point = out.get("point", "")
-                        if m_key == "spreads":
-                            label = f"{out['name']} ({point:+} Handicap)" if isinstance(point, (int, float)) else f"{out['name']} {point}"
-                        elif m_key == "totals":
-                            label = f"{out['name']} {point} Goals"
-                        else:
-                            label = f"{out['name']} to Win" if out['name'] != "Draw" else "Match Draw"
-                        outcomes_map.setdefault(label, []).append((out["price"], bm["title"]))
+@st.cache_data(ttl=1800)
+def load_picks():
+    return get_value_picks()
 
-            for label, prices in outcomes_map.items():
-                if len(prices) < 3:
-                    continue
-                best_price, best_bookie = max(prices, key=lambda x: x[0])
-                avg_price = sum(p[0] for p in prices) / len(prices)
+df = load_picks()
+bets_df = pd.read_sql_query("SELECT * FROM bets ORDER BY id DESC", conn)
+settled = bets_df[bets_df["status"] != "Pending"] if not bets_df.empty else pd.DataFrame()
+net_pnl_inr = settled["profit_loss"].sum() if not settled.empty else 0.0
 
-                if not (1.40 <= best_price <= 3.60):
-                    continue
+# League Filter Pills
+selected_league = st.radio(
+    "Filter by Competition:",
+    ["All Competitions", "Champions League", "Premier League", "La Liga"],
+    horizontal=True
+)
 
-                fair_prob = min(0.85, (1.0 / avg_price) * 0.96)
-                ev = (fair_prob * best_price) - 1.0
+filtered_df = df if selected_league == "All Competitions" else df[df["league"] == selected_league]
 
-                if ev >= 0.015:  # 1.5%+ edge so UCL & top games always show up
-                    ev_pct = round(ev * 100, 1)
-                    stake_units = round(max(0.5, min(3.0, ((ev / (best_price - 1)) * 0.25) * 100)), 1)
-                    league_records.append({
-                        "league": league,
-                        "fixture": f"{home} vs {away}",
-                        "market": label,
-                        "bookmaker": best_bookie,
-                        "odds": round(best_price, 2),
-                        "prob": round(fair_prob, 3),
-                        "edge": ev_pct,
-                        "stake": stake_units,
-                        "avg_price": avg_price
-                    })
+# KPI Bento Row
+c1, c2, c3, c4 = st.columns(4)
+c1.markdown(f'<div class="metric-pill"><div class="metric-title">Available Picks</div><div class="metric-value">{len(filtered_df)}</div></div>', unsafe_allow_html=True)
+max_edge = filtered_df["edge"].max() if not filtered_df.empty else 0.0
+c2.markdown(f'<div class="metric-pill"><div class="metric-title">Best Value Edge</div><div class="metric-value" style="color:#30d158;">+{max_edge:.1f}%</div></div>', unsafe_allow_html=True)
+pnl_color = "#30d158" if net_pnl_inr >= 0 else "#ff453a"
+c3.markdown(f'<div class="metric-pill"><div class="metric-title">Net Profit / Loss</div><div class="metric-value" style="color:{pnl_color};">₹{net_pnl_inr:+,.0f}</div></div>', unsafe_allow_html=True)
+c4.markdown(f'<div class="metric-pill"><div class="metric-title">Logged Slips</div><div class="metric-value">{len(bets_df)}</div></div>', unsafe_allow_html=True)
 
-        # Keep the top 4 best bets from EACH league so UCL is never crowded out!
-        league_records = sorted(league_records, key=lambda x: x["edge"], reverse=True)[:4]
-        all_records.extend(league_records)
+st.write("")
+tab1, tab2, tab3 = st.tabs(["🔥 Best Parlays (Accas)", "📊 Single Match Picks", "💰 ₹ Profit & Loss Tracker"])
 
-    for r in all_records:
-        r["rationale"] = generate_ai_tactical_rationale(
-            r["fixture"], r["league"], r["market"], r["odds"], r["avg_price"]
-        )
+# ================= TAB 1: PARLAYS =================
+with tab1:
+    picks_list = filtered_df.to_dict("records")
+    # Build parlays from different matches only
+    valid_combos = [
+        combo for combo in combinations(picks_list, 2)
+        if combo[0]["fixture"] != combo[1]["fixture"]
+    ][:4]
 
-    if not all_records:
-        all_records = [
-            {
-                "league": "Champions League",
-                "fixture": "Real Madrid vs Bayern Munich",
-                "market": "Over 2.5 Goals",
-                "bookmaker": "Bet365",
-                "odds": 1.80,
-                "prob": 0.62,
-                "edge": 11.6,
-                "stake": 1.5,
-                "rationale": "Both teams have world-class wingers and play high defensive lines in Europe, meaning plenty of end-to-end counter-attacks and goals."
-            },
-            {
-                "league": "Premier League",
-                "fixture": "Arsenal vs Chelsea",
-                "market": "Arsenal to Win",
-                "bookmaker": "Pinnacle",
-                "odds": 1.85,
-                "prob": 0.60,
-                "edge": 11.0,
-                "stake": 1.5,
-                "rationale": "Arsenal are dominant at home and deadly on corners, while Chelsea's young backline struggles under heavy high pressing."
-            }
-        ]
-    return pd.DataFrame(all_records)
+    if valid_combos:
+        for idx, combo in enumerate(valid_combos):
+            comb_odds = round(combo[0]["odds"] * combo[1]["odds"], 2)
+            comb_prob = combo[0]["prob"] * combo[1]["prob"]
+            comb_ev = round(((comb_prob * comb_odds) - 1.0) * 100, 1)
+            stake_units = round(max(0.5, min(2.0, (comb_ev / 12.0))), 1)
+            stake_inr = int(stake_units * unit_inr)
+            potential_win_inr = int(stake_inr * comb_odds)
+
+            with st.container(border=True):
+                col_left, col_right = st.columns([4, 1])
+                with col_left:
+                    st.markdown(f'<span class="league-badge">2-Match Parlay #{idx+1}</span>', unsafe_allow_html=True)
+                    st.subheader(f"{combo[0]['fixture']} + {combo[1]['fixture']}")
+                with col_right:
+                    st.markdown(f"<div style='text-align:right;'><span style='font-size:26px; font-weight:700;'>{comb_odds}x</span><br><span class='edge-badge'>+{comb_ev}% Value</span></div>", unsafe_allow_html=True)
+
+                st.markdown(f"**Leg 1 ({combo[0]['league']}):** {combo[0]['fixture']} $\\rightarrow$ **{combo[0]['market']}** @ `{combo[0]['odds']}`")
+                st.markdown(f"<div class='reason-box'>⚽ <b>Why back this:</b> {combo[0]['rationale']}</div>", unsafe_allow_html=True)
+
+                st.markdown(f"**Leg 2 ({combo[1]['league']}):** {combo[1]['fixture']} $\\rightarrow$ **{combo[1]['market']}** @ `{combo[1]['odds']}`")
+                st.markdown(f"<div class='reason-box'>⚽ <b>Why back this:</b> {combo[1]['rationale']}</div>", unsafe_allow_html=True)
+
+                st.markdown(f"**Suggested Bet:** `₹{stake_inr:,}` ({stake_units}u) $\\rightarrow$ **Potential Return:** `₹{potential_win_inr:,}`")
+
+                if st.button(f"➕ Log Parlay #{idx+1} (₹{stake_inr:,})", key=f"btn_parlay_{idx}"):
+                    summary = f"{combo[0]['fixture']} ({combo[0]['market']}) + {combo[1]['fixture']} ({combo[1]['market']})"
+                    c.execute("INSERT INTO bets (date, bet_type, details, odds, stake, status, profit_loss) VALUES (?,?,?,?,?,?,?)",
+                              (datetime.now().strftime("%d %b %Y"), "2-Leg Parlay", summary, comb_odds, stake_inr, "Pending", 0.0))
+                    conn.commit()
+                    st.rerun()
+    else:
+        st.info("No upcoming matches found for this filter right now. Try selecting 'All Competitions' above.")
+
+# ================= TAB 2: SINGLES =================
+with tab2:
+    if picks_list:
+        for idx, p in enumerate(picks_list):
+            stake_inr = int(p["stake"] * unit_inr)
+            potential_win_inr = int(stake_inr * p["odds"])
+            with st.container(border=True):
+                col_info, col_num = st.columns([4, 1])
+                with col_info:
+                    st.markdown(f'<span class="league-badge">{p["league"]}</span>', unsafe_allow_html=True)
+                    st.markdown(f"### {p['fixture']}")
+                    st.markdown(f"**Pick:** `{p['market']}` @ **{p['odds']}** *(Best price on {p['bookmaker']})*")
+                with col_num:
+                    st.markdown(f"<div style='text-align:right;'><span class='edge-badge'>+{p['edge']}% Value</span><p style='color:#86868b; margin-top:6px;'>Bet: ₹{stake_inr:,}</p></div>", unsafe_allow_html=True)
+
+                st.markdown(f"<div class='reason-box'>⚽ <b>Match Insight:</b> {p['rationale']}</div>", unsafe_allow_html=True)
+                st.caption(f"Suggested Stake: **₹{stake_inr:,}** ({p['stake']}u) • Potential Return: **₹{potential_win_inr:,}**")
+
+                if st.button(f"➕ Log Single: {p['fixture']} (₹{stake_inr:,})", key=f"btn_single_{idx}"):
+                    c.execute("INSERT INTO bets (date, bet_type, details, odds, stake, status, profit_loss) VALUES (?,?,?,?,?,?,?)",
+                              (datetime.now().strftime("%d %b %Y"), "Single", f"{p['fixture']} ({p['market']})", p['odds'], stake_inr, "Pending", 0.0))
+                    conn.commit()
+                    st.rerun()
+    else:
+        st.info("No single picks currently active for this competition.")
+
+# ================= TAB 3: ₹ INR TRACKER =================
+with tab3:
+    st.subheader("Your ₹ INR Bet Slip Ledger")
+    if not bets_df.empty:
+        for _, row in bets_df.iterrows():
+            with st.container(border=True):
+                colA, colB, colC = st.columns([5, 2, 2])
+                colA.markdown(f"**{row['date']} • {row['bet_type']}**  \n{row['details']}")
+                colB.markdown(f"Odds: **{row['odds']}x**  \nStaked: **₹{row['stake']:,.0f}**")
+                if row["status"] == "Pending":
+                    res = colC.selectbox("Result", ["Pending", "Won", "Lost", "Void"], key=f"set_{row['id']}")
+                    if res != "Pending":
+                        pnl = round(row["stake"] * (row["odds"] - 1), 0) if res == "Won" else (-row["stake"] if res == "Lost" else 0.0)
+                        c.execute("UPDATE bets SET status=?, profit_loss=? WHERE id=?", (res, pnl, row["id"]))
+                        conn.commit()
+                        st.rerun()
+                else:
+                    color = "green" if row["status"] == "Won" else ("red" if row["status"] == "Lost" else "gray")
+                    colC.markdown(f":{color}[**{row['status']}**]  \n**₹{row['profit_loss']:+,.0f}**")
+    else:
+        st.info("No bets logged yet! Click '➕ Log Parlay' or '➕ Log Single' to track your ₹ INR profit and loss.")
