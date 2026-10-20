@@ -7,7 +7,7 @@ from itertools import combinations
 
 st.set_page_config(page_title="Radar • Matchday Terminal", page_icon="⚽", layout="wide")
 
-# Load secrets BEFORE running engine functions so Gemini AI works!
+# Load secrets BEFORE running engine functions
 if "ODDS_API_KEY" in st.secrets:
     os.environ["ODDS_API_KEY"] = st.secrets["ODDS_API_KEY"]
 if "GEMINI_API_KEY" in st.secrets:
@@ -31,7 +31,7 @@ st.markdown("""
         text-align: center;
     }
     .metric-title { font-size: 12px; color: #86868b; text-transform: uppercase; letter-spacing: 0.05em; }
-    .metric-value { font-size: 26px; font-weight: 700; color: #ffffff; margin-top: 4px; }
+    .metric-value { font-size: 24px; font-weight: 700; color: #ffffff; margin-top: 4px; }
     .league-badge {
         display: inline-block; padding: 4px 12px; border-radius: 100px;
         font-size: 11px; font-weight: 600; text-transform: uppercase;
@@ -62,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Database Setup (Now stores INR stakes & profits)
+# Database Setup
 conn = sqlite3.connect("bets_tracker_inr.db", check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS bets (
@@ -71,13 +71,15 @@ c.execute('''CREATE TABLE IF NOT EXISTS bets (
 )''')
 conn.commit()
 
-# Top Header & Controls Row
-head_left, head_mid, head_right = st.columns([3, 2, 1])
+# Top Header & Bankroll Controls
+head_left, head_mid1, head_mid2, head_right = st.columns([2, 1, 1, 1])
 with head_left:
-    st.markdown("<h1 style='font-size: 34px; font-weight: 700; margin-bottom: 2px;'>Radar</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #86868b; margin-bottom: 14px;'>Smart Football Picks & ₹ INR Bankroll Tracker • UCL, PL & La Liga</p>", unsafe_allow_html=True)
-with head_mid:
-    unit_inr = st.number_input("₹ Base Stake (1 Unit = ₹)", min_value=100, max_value=50000, value=500, step=100)
+    st.markdown("<h1 style='font-size: 32px; font-weight: 700; margin-bottom: 2px;'>Radar</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #86868b; margin-bottom: 14px;'>AI Football Terminal & ₹ Bankroll Manager</p>", unsafe_allow_html=True)
+with head_mid1:
+    starting_bankroll = st.number_input("₹ Starting Bankroll", min_value=1000, value=25000, step=1000)
+with head_mid2:
+    unit_inr = st.number_input("₹ Base Stake (1 Unit)", min_value=100, max_value=10000, value=500, step=100)
 with head_right:
     st.write("")
     if st.button("🔄 Refresh Picks"):
@@ -94,32 +96,33 @@ df = load_picks()
 bets_df = pd.read_sql_query("SELECT * FROM bets ORDER BY id DESC", conn)
 settled = bets_df[bets_df["status"] != "Pending"] if not bets_df.empty else pd.DataFrame()
 net_pnl_inr = settled["profit_loss"].sum() if not settled.empty else 0.0
+current_bankroll = starting_bankroll + net_pnl_inr
 
 # League Filter Pills
 selected_league = st.radio(
-    "Filter by Competition:",
+    "Filter Competition:",
     ["All Competitions", "Champions League", "Premier League", "La Liga"],
     horizontal=True
 )
 
 filtered_df = df if selected_league == "All Competitions" else df[df["league"] == selected_league]
 
-# KPI Bento Row
-c1, c2, c3, c4 = st.columns(4)
-c1.markdown(f'<div class="metric-pill"><div class="metric-title">Available Picks</div><div class="metric-value">{len(filtered_df)}</div></div>', unsafe_allow_html=True)
+# KPI Bento Row (Now includes Current Bankroll)
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.markdown(f'<div class="metric-pill"><div class="metric-title">Current Bankroll</div><div class="metric-value" style="color:#2997ff;">₹{current_bankroll:,.0f}</div></div>', unsafe_allow_html=True)
+c2.markdown(f'<div class="metric-pill"><div class="metric-title">Available Picks</div><div class="metric-value">{len(filtered_df)}</div></div>', unsafe_allow_html=True)
 max_edge = filtered_df["edge"].max() if not filtered_df.empty else 0.0
-c2.markdown(f'<div class="metric-pill"><div class="metric-title">Best Value Edge</div><div class="metric-value" style="color:#30d158;">+{max_edge:.1f}%</div></div>', unsafe_allow_html=True)
+c3.markdown(f'<div class="metric-pill"><div class="metric-title">Top Value Edge</div><div class="metric-value" style="color:#30d158;">+{max_edge:.1f}%</div></div>', unsafe_allow_html=True)
 pnl_color = "#30d158" if net_pnl_inr >= 0 else "#ff453a"
-c3.markdown(f'<div class="metric-pill"><div class="metric-title">Net Profit / Loss</div><div class="metric-value" style="color:{pnl_color};">₹{net_pnl_inr:+,.0f}</div></div>', unsafe_allow_html=True)
-c4.markdown(f'<div class="metric-pill"><div class="metric-title">Logged Slips</div><div class="metric-value">{len(bets_df)}</div></div>', unsafe_allow_html=True)
+c4.markdown(f'<div class="metric-pill"><div class="metric-title">Net P&L</div><div class="metric-value" style="color:{pnl_color};">₹{net_pnl_inr:+,.0f}</div></div>', unsafe_allow_html=True)
+c5.markdown(f'<div class="metric-pill"><div class="metric-title">Tracked Slips</div><div class="metric-value">{len(bets_df)}</div></div>', unsafe_allow_html=True)
 
 st.write("")
-tab1, tab2, tab3 = st.tabs(["🔥 Best Parlays (Accas)", "📊 Single Match Picks", "💰 ₹ Profit & Loss Tracker"])
+tab1, tab2, tab3, tab4 = st.tabs(["🔥 Best Parlays", "📊 Single Matches", "💰 ₹ P&L Tracker", "🤖 Ask Gemini AI Coach"])
 
 # ================= TAB 1: PARLAYS =================
 with tab1:
     picks_list = filtered_df.to_dict("records")
-    # Build parlays from different matches only
     valid_combos = [
         combo for combo in combinations(picks_list, 2)
         if combo[0]["fixture"] != combo[1]["fixture"]
@@ -143,10 +146,10 @@ with tab1:
                     st.markdown(f"<div style='text-align:right;'><span style='font-size:26px; font-weight:700;'>{comb_odds}x</span><br><span class='edge-badge'>+{comb_ev}% Value</span></div>", unsafe_allow_html=True)
 
                 st.markdown(f"**Leg 1 ({combo[0]['league']}):** {combo[0]['fixture']} $\\rightarrow$ **{combo[0]['market']}** @ `{combo[0]['odds']}`")
-                st.markdown(f"<div class='reason-box'>⚽ <b>Why back this:</b> {combo[0]['rationale']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='reason-box'>⚽ <b>Insight:</b> {combo[0]['rationale']}</div>", unsafe_allow_html=True)
 
                 st.markdown(f"**Leg 2 ({combo[1]['league']}):** {combo[1]['fixture']} $\\rightarrow$ **{combo[1]['market']}** @ `{combo[1]['odds']}`")
-                st.markdown(f"<div class='reason-box'>⚽ <b>Why back this:</b> {combo[1]['rationale']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='reason-box'>⚽ <b>Insight:</b> {combo[1]['rationale']}</div>", unsafe_allow_html=True)
 
                 st.markdown(f"**Suggested Bet:** `₹{stake_inr:,}` ({stake_units}u) $\\rightarrow$ **Potential Return:** `₹{potential_win_inr:,}`")
 
@@ -157,7 +160,7 @@ with tab1:
                     conn.commit()
                     st.rerun()
     else:
-        st.info("No upcoming matches found for this filter right now. Try selecting 'All Competitions' above.")
+        st.info("No matches found for this filter right now.")
 
 # ================= TAB 2: SINGLES =================
 with tab2:
@@ -165,16 +168,18 @@ with tab2:
         for idx, p in enumerate(picks_list):
             stake_inr = int(p["stake"] * unit_inr)
             potential_win_inr = int(stake_inr * p["odds"])
+            risk_tag = "🟢 Low Risk (Bank Builder)" if p["odds"] < 1.70 else ("🟡 Medium Risk (Smart Value)" if p["odds"] < 2.40 else "🔴 High Risk (Punt)")
+            
             with st.container(border=True):
                 col_info, col_num = st.columns([4, 1])
                 with col_info:
-                    st.markdown(f'<span class="league-badge">{p["league"]}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span class="league-badge">{p["league"]}</span> &nbsp; `🏷️ {risk_tag}`', unsafe_allow_html=True)
                     st.markdown(f"### {p['fixture']}")
                     st.markdown(f"**Pick:** `{p['market']}` @ **{p['odds']}** *(Best price on {p['bookmaker']})*")
                 with col_num:
                     st.markdown(f"<div style='text-align:right;'><span class='edge-badge'>+{p['edge']}% Value</span><p style='color:#86868b; margin-top:6px;'>Bet: ₹{stake_inr:,}</p></div>", unsafe_allow_html=True)
 
-                st.markdown(f"<div class='reason-box'>⚽ <b>Match Insight:</b> {p['rationale']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='reason-box'>⚽ <b>Gemini Tactical Insight:</b> {p['rationale']}</div>", unsafe_allow_html=True)
                 st.caption(f"Suggested Stake: **₹{stake_inr:,}** ({p['stake']}u) • Potential Return: **₹{potential_win_inr:,}**")
 
                 if st.button(f"➕ Log Single: {p['fixture']} (₹{stake_inr:,})", key=f"btn_single_{idx}"):
@@ -185,7 +190,7 @@ with tab2:
     else:
         st.info("No single picks currently active for this competition.")
 
-# ================= TAB 3: ₹ INR TRACKER =================
+# ================= TAB 3: ₹ P&L TRACKER =================
 with tab3:
     st.subheader("Your ₹ INR Bet Slip Ledger")
     if not bets_df.empty:
@@ -205,4 +210,30 @@ with tab3:
                     color = "green" if row["status"] == "Won" else ("red" if row["status"] == "Lost" else "gray")
                     colC.markdown(f":{color}[**{row['status']}**]  \n**₹{row['profit_loss']:+,.0f}**")
     else:
-        st.info("No bets logged yet! Click '➕ Log Parlay' or '➕ Log Single' to track your ₹ INR profit and loss.")
+        st.info("No bets logged yet! Click '➕ Log Single' or '➕ Log Parlay' to track your bankroll.")
+
+# ================= TAB 4: GEMINI AI CHAT COACH =================
+with tab4:
+    st.subheader("🤖 Ask Your Gemini Football Betting Coach")
+    st.write("Have a question about a fixture, team news, or whether a bet is worth taking? Ask Gemini right here!")
+
+    user_query = st.text_input("Ask Gemini anything about tonight's matches or betting strategy:", placeholder="e.g., Is Real Madrid missing key players tonight?")
+    if user_query:
+        import requests
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key:
+            st.error("Gemini API key not found in Streamlit Secrets!")
+        else:
+            with st.spinner("Gemini is analyzing team tactics and stats..."):
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+                prompt = f"You are a friendly expert football betting analyst talking to an Indian football fan. Answer this question concisely and practically in under 60 words: {user_query}"
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                try:
+                    res = requests.post(url, json=payload, timeout=10)
+                    if res.status_code == 200:
+                        ans = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        st.markdown(f"<div class='reason-box'>🤖 <b>Gemini Coach:</b> {ans}</div>", unsafe_allow_html=True)
+                    else:
+                        st.error("Could not reach Gemini API. Check your key.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
