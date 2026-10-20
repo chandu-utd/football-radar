@@ -1,0 +1,31 @@
+name: Automated Matchday Scan
+
+on:
+  schedule:
+    # Runs Tuesday, Wednesday, Saturday, Sunday at 09:00 UTC
+    - cron: '0 9 * * 0,2,3,6'
+  workflow_dispatch:
+
+jobs:
+  update-picks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas requests
+      - name: Fetch Live Matchday Value & AI Analysis
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -c "from engine import get_value_picks; get_value_picks().to_csv('latest_picks.csv', index=False)"
+      - name: Save Latest Picks
+        run: |
+          git config --global user.name "MatchdayBot"
+          git config --global user.email "bot@users.noreply.github.com"
+          git add latest_picks.csv
+          git commit -m "Auto-update matchday picks" || exit 0
+          git push
