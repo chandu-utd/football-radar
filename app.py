@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from itertools import combinations
 
-st.set_page_config(page_title="Radar • Matchday Terminal", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="WC 2026 • High Odds + High Probability", page_icon="⚽", layout="wide")
 
 # Load secrets BEFORE running engine functions
 if "ODDS_API_KEY" in st.secrets:
@@ -15,49 +15,60 @@ if "GEMINI_API_KEY" in st.secrets:
 
 from engine import get_value_picks
 
-# Apple Bento Dark Styling
+# Apple Bento Dark Styling (Matched to high-odds aesthetic)
 st.markdown("""
 <style>
+    :root {
+        --bg:#0b0d12; --surface:#13161e; --surface2:#1a1e28; --border:#252a38;
+        --accent:#f0c040; --accent2:#4a9fe8; --text:#e8eaf0; --muted:#6b7590;
+        --green:#2ecc71; --red:#e74c3c; --warn:#f39c12;
+    }
     html, body, [class*="css"] {
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif !important;
-        background-color: #0b0c10 !important;
-        color: #f5f5f7 !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        background-color: var(--bg) !important;
+        color: var(--text) !important;
+        font-size: 14px;
     }
     .metric-pill {
-        background: rgba(26, 27, 34, 0.75);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 12px;
         padding: 16px 20px;
         text-align: center;
     }
-    .metric-title { font-size: 12px; color: #86868b; text-transform: uppercase; letter-spacing: 0.05em; }
-    .metric-value { font-size: 24px; font-weight: 700; color: #ffffff; margin-top: 4px; }
+    .metric-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 800; }
+    .metric-value { font-size: 24px; font-weight: 900; color: #ffffff; margin-top: 4px; }
     .league-badge {
-        display: inline-block; padding: 4px 12px; border-radius: 100px;
-        font-size: 11px; font-weight: 600; text-transform: uppercase;
-        background: rgba(0, 113, 227, 0.15); color: #2997ff;
+        display: inline-block; padding: 3px 10px; border-radius: 20px;
+        font-size: 11px; font-weight: 800; text-transform: uppercase;
+        background: rgba(41, 151, 255, 0.15); color: var(--accent2);
         border: 1px solid rgba(41, 151, 255, 0.3); margin-bottom: 8px;
     }
     .edge-badge {
-        background: rgba(48, 209, 88, 0.15); color: #30d158;
-        border: 1px solid rgba(48, 209, 88, 0.3); padding: 4px 10px;
-        border-radius: 100px; font-size: 12px; font-weight: 600;
+        background: rgba(46, 204, 113, 0.15); color: var(--green);
+        border: 1px solid rgba(46, 204, 113, 0.3); padding: 3px 10px;
+        border-radius: 6px; font-size: 11px; font-weight: 800;
     }
     .reason-box {
         background: rgba(0, 0, 0, 0.35);
-        border-left: 3px solid #2997ff;
+        border-left: 3px solid var(--accent2);
         border-radius: 8px;
         padding: 12px 14px;
-        color: #e5e5ea;
-        font-size: 14.5px;
+        color: #d1d1d6;
+        font-size: 13.5px;
         line-height: 1.5;
         margin-top: 8px;
         margin-bottom: 12px;
     }
     div.stButton > button {
-        background-color: #0071e3 !important; color: #ffffff !important;
-        border: none !important; border-radius: 100px !important;
-        padding: 8px 24px !important; font-weight: 600 !important;
+        background-color: var(--accent) !important; color: #000000 !important;
+        border: none !important; border-radius: 8px !important;
+        padding: 8px 20px !important; font-weight: 800 !important;
+        font-size: 13px !important;
+        transition: transform 0.15s ease !important;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-1px) !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -72,7 +83,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS bets (
 )''')
 conn.commit()
 
-# Initialize Session State for Bankroll & Logged tracking so they stay saved
+# Session State for Persistence
 if "starting_bankroll" not in st.session_state:
     st.session_state.starting_bankroll = 500
 if "unit_inr" not in st.session_state:
@@ -80,11 +91,11 @@ if "unit_inr" not in st.session_state:
 if "logged_bets" not in st.session_state:
     st.session_state.logged_bets = set()
 
-# Top Header & Bankroll Controls (Saved in Session State)
+# Top Header & Controls
 head_left, head_mid1, head_mid2, head_right = st.columns([2, 1, 1, 1])
 with head_left:
-    st.markdown("<h1 style='font-size: 32px; font-weight: 700; margin-bottom: 2px;'>Radar</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #86868b; margin-bottom: 14px;'>AI Football Terminal & ₹ Bankroll Manager</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 28px; font-weight: 900; margin-bottom: 2px; color: #fff;'>Radar 🎯</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: var(--muted); font-size: 12px; margin-bottom: 14px;'>Smart High-Odds + High Probability Terminal</p>", unsafe_allow_html=True)
 with head_mid1:
     starting_bankroll = st.number_input("₹ Starting Bankroll", min_value=100, value=st.session_state.starting_bankroll, step=50)
     st.session_state.starting_bankroll = starting_bankroll
@@ -109,7 +120,7 @@ settled = bets_df[bets_df["status"] != "Pending"] if not bets_df.empty else pd.D
 net_pnl_inr = settled["profit_loss"].sum() if not settled.empty else 0.0
 current_bankroll = starting_bankroll + net_pnl_inr
 
-# League Filter Pills
+# League Filters
 selected_league = st.radio(
     "Filter Competition:",
     ["All Competitions", "Champions League", "Premier League", "La Liga"],
@@ -120,11 +131,11 @@ filtered_df = df if selected_league == "All Competitions" else df[df["league"] =
 
 # KPI Bento Row
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.markdown(f'<div class="metric-pill"><div class="metric-title">Current Bankroll</div><div class="metric-value" style="color:#2997ff;">₹{current_bankroll:,.0f}</div></div>', unsafe_allow_html=True)
+c1.markdown(f'<div class="metric-pill"><div class="metric-title">Current Bankroll</div><div class="metric-value" style="color:var(--accent2);">₹{current_bankroll:,.0f}</div></div>', unsafe_allow_html=True)
 c2.markdown(f'<div class="metric-pill"><div class="metric-title">Available Picks</div><div class="metric-value">{len(filtered_df)}</div></div>', unsafe_allow_html=True)
 max_edge = filtered_df["edge"].max() if not filtered_df.empty else 0.0
-c3.markdown(f'<div class="metric-pill"><div class="metric-title">Top Value Edge</div><div class="metric-value" style="color:#30d158;">+{max_edge:.1f}%</div></div>', unsafe_allow_html=True)
-pnl_color = "#30d158" if net_pnl_inr >= 0 else "#ff453a"
+c3.markdown(f'<div class="metric-pill"><div class="metric-title">Top Value Edge</div><div class="metric-value" style="color:var(--green);">+{max_edge:.1f}%</div></div>', unsafe_allow_html=True)
+pnl_color = "var(--green)" if net_pnl_inr >= 0 else "var(--red)"
 c4.markdown(f'<div class="metric-pill"><div class="metric-title">Net P&L</div><div class="metric-value" style="color:{pnl_color};">₹{net_pnl_inr:+,.0f}</div></div>', unsafe_allow_html=True)
 c5.markdown(f'<div class="metric-pill"><div class="metric-title">Tracked Slips</div><div class="metric-value">{len(bets_df)}</div></div>', unsafe_allow_html=True)
 
@@ -154,9 +165,9 @@ with tab1:
                 col_left, col_right = st.columns([4, 1])
                 with col_left:
                     st.markdown(f'<span class="league-badge">2-Match Parlay #{idx+1}</span>', unsafe_allow_html=True)
-                    st.subheader(f"{combo[0]['fixture']} + {combo[1]['fixture']}")
+                    st.markdown(f"<h3 style='font-size:16px; font-weight:800; margin-bottom:4px;'>{combo[0]['fixture']} + {combo[1]['fixture']}</h3>", unsafe_allow_html=True)
                 with col_right:
-                    st.markdown(f"<div style='text-align:right;'><span style='font-size:26px; font-weight:700;'>{comb_odds}x</span><br><span class='edge-badge'>+{comb_ev}% Value</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:right;'><span style='font-size:24px; font-weight:900; color:var(--accent);'>{comb_odds}×</span><br><span class='edge-badge'>+{comb_ev}% Value</span></div>", unsafe_allow_html=True)
 
                 st.markdown(f"**Leg 1 ({combo[0]['league']}):** {combo[0]['fixture']} $\\rightarrow$ **{combo[0]['market']}** @ `{combo[0]['odds']}`")
                 st.markdown(f"<div class='reason-box'>⚽ <b>Insight:</b> {combo[0]['rationale']}</div>", unsafe_allow_html=True)
@@ -192,11 +203,11 @@ with tab2:
             with st.container(border=True):
                 col_info, col_num = st.columns([4, 1])
                 with col_info:
-                    st.markdown(f'<span class="league-badge">{p["league"]}</span> &nbsp; `🏷️ {risk_tag}`', unsafe_allow_html=True)
-                    st.markdown(f"### {p['fixture']}")
+                    st.markdown(f'<span class="league-badge">{p["league"]}</span> &nbsp; <span style="font-size:11px; color:var(--muted)">🏷️ {risk_tag}</span>', unsafe_allow_html=True)
+                    st.markdown(f"<h3 style='font-size:16px; font-weight:800; margin-bottom:4px;'>{p['fixture']}</h3>", unsafe_allow_html=True)
                     st.markdown(f"**Pick:** `{p['market']}` @ **{p['odds']}** *(Best price on {p['bookmaker']})*")
                 with col_num:
-                    st.markdown(f"<div style='text-align:right;'><span class='edge-badge'>+{p['edge']}% Value</span><p style='color:#86868b; margin-top:6px;'>Bet: ₹{stake_inr:,}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:right;'><span class='edge-badge'>+{p['edge']}% Value</span><p style='color:var(--muted); margin-top:6px; font-size:12px;'>Bet: ₹{stake_inr:,}</p></div>", unsafe_allow_html=True)
 
                 st.markdown(f"<div class='reason-box'>⚽ <b>Gemini Tactical Insight:</b> {p['rationale']}</div>", unsafe_allow_html=True)
                 st.caption(f"Suggested Stake: **₹{stake_inr:,}** ({p['stake']}u) • Potential Return: **₹{potential_win_inr:,}**")
@@ -230,8 +241,8 @@ with tab3:
                         conn.commit()
                         st.rerun()
                 else:
-                    color = "green" if row["status"] == "Won" else ("red" if row["status"] == "Lost" else "gray")
-                    colC.markdown(f":{color}[**{row['status']}**]  \n**₹{row['profit_loss']:+,.0f}**")
+                    color = "var(--green)" if row["status"] == "Won" else ("var(--red)" if row["status"] == "Lost" else "var(--muted)")
+                    colC.markdown(f"<span style='color:{color}; font-weight:800;'>{row['status']}</span><br>**₹{row['profit_loss']:+,.0f}**", unsafe_allow_html=True)
     else:
         st.info("No bets logged yet! Click '➕ Log Single' or '➕ Log Parlay' to track your bankroll.")
 
