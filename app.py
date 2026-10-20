@@ -259,7 +259,7 @@ with tab4:
             st.error("Gemini API key not found in Streamlit Secrets!")
         else:
             with st.spinner("Gemini is analyzing team tactics and stats..."):
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
                 prompt = f"You are a friendly expert football betting analyst talking to an Indian football fan. Answer this question concisely and practically in under 60 words: {user_query}"
                 payload = {"contents": [{"parts": [{"text": prompt}]}]}
                 try:
@@ -268,6 +268,6 @@ with tab4:
                         ans = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
                         st.markdown(f"<div class='reason-box'>🤖 <b>Gemini Coach:</b> {ans}</div>", unsafe_allow_html=True)
                     else:
-                        st.error("Could not reach Gemini API. Check your key.")
+                        st.error(f"API Error Code {res.status_code}: Check your Gemini key.")
                 except Exception as e:
                     st.error(f"Error: {e}")
