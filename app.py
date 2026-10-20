@@ -71,15 +71,15 @@ c.execute('''CREATE TABLE IF NOT EXISTS bets (
 )''')
 conn.commit()
 
-# Top Header & Bankroll Controls
+# Top Header & Bankroll Controls (Defaulted to ₹500 Bankroll & ₹20 Base Unit)
 head_left, head_mid1, head_mid2, head_right = st.columns([2, 1, 1, 1])
 with head_left:
     st.markdown("<h1 style='font-size: 32px; font-weight: 700; margin-bottom: 2px;'>Radar</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #86868b; margin-bottom: 14px;'>AI Football Terminal & ₹ Bankroll Manager</p>", unsafe_allow_html=True)
 with head_mid1:
-    starting_bankroll = st.number_input("₹ Starting Bankroll", min_value=1000, value=25000, step=1000)
+    starting_bankroll = st.number_input("₹ Starting Bankroll", min_value=100, value=500, step=50)
 with head_mid2:
-    unit_inr = st.number_input("₹ Base Stake (1 Unit)", min_value=100, max_value=10000, value=500, step=100)
+    unit_inr = st.number_input("₹ Base Stake (1 Unit)", min_value=10, max_value=1000, value=20, step=10)
 with head_right:
     st.write("")
     if st.button("🔄 Refresh Picks"):
@@ -107,7 +107,7 @@ selected_league = st.radio(
 
 filtered_df = df if selected_league == "All Competitions" else df[df["league"] == selected_league]
 
-# KPI Bento Row (Now includes Current Bankroll)
+# KPI Bento Row
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.markdown(f'<div class="metric-pill"><div class="metric-title">Current Bankroll</div><div class="metric-value" style="color:#2997ff;">₹{current_bankroll:,.0f}</div></div>', unsafe_allow_html=True)
 c2.markdown(f'<div class="metric-pill"><div class="metric-title">Available Picks</div><div class="metric-value">{len(filtered_df)}</div></div>', unsafe_allow_html=True)
